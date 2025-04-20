@@ -4,3 +4,9 @@ pymongo
 python-multipart
 uvicorn
 dotenv
+requests
+torch
+pillow
+sentence_transformers
+anthropic
+geopy

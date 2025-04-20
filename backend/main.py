@@ -9,7 +9,7 @@ from utils import db
 import io
 from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
-from tests.helper import search_pets
+from utils.helper_ml import search_pets
 from utils import helper
 from typing import Optional
 
