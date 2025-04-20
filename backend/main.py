@@ -1,44 +1,39 @@
-from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.responses import JSONResponse
-from datetime import date
-from uuid import uuid4
-import os
-import uvicorn
+# main.py
+from fastapi import FastAPI, UploadFile, File, Form, Request, HTTPException, Path
+from fastapi.responses import StreamingResponse, Response
+from bson.json_util import dumps
 from bson import ObjectId
-from utils import db
-import io
-from fastapi.responses import StreamingResponse
+from datetime import date
+import io, uvicorn
 from contextlib import asynccontextmanager
+from utils import db, helper
 from utils.helper_ml import search_pets
-from utils import helper
-from typing import Optional
-
+from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load the ML model
     db.init_db()
     yield
 
-
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"],
+    allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
+)
 
+def get_base_url(request: Request) -> str:
+    return str(request.base_url).rstrip('/')
 
 async def save_uploaded_file(file: UploadFile) -> str:
-    if not file or not file.filename:
-        raise ValueError("Invalid file upload: filename is missing")
-
     contents = await file.read()
     stream = io.BytesIO(contents)
-
-    # Upload file into GridFS and return the ID
     file_id = await db.fs_bucket.upload_from_stream(file.filename, stream)
-    return str(file_id)  # store as string to make it JSON-safe
+    return str(file_id)
 
-
-# Report missing: Someone you know
 @app.post("/report-missing")
 async def report_missing(
+    request: Request,
     photo: UploadFile = File(...),
     type: int = Form(...),
     full_name: str = Form(...),
@@ -49,14 +44,11 @@ async def report_missing(
     reward: float = Form(None),
     phone_number: str = Form(...),
 ):
-    contents = await photo.read()
-    file_id = await db.fs_bucket.upload_from_stream(
-        photo.filename, io.BytesIO(contents)
-    )
+    file_id = await save_uploaded_file(photo)
+    base = get_base_url(request)
+    photo_url = f"{base}/files/{file_id}"
 
-    # photo_filename = await save_uploaded_file(photo)
-
-    data = {
+    payload = {
         "type": type,
         "full_name": full_name,
         "last_seen_location": {"lat": lat, "lon": lon},
@@ -64,142 +56,149 @@ async def report_missing(
         "description": description,
         "reward": reward,
         "phone_number": phone_number,
-        "photo_filename": f"/files/{file_id}",
-        "image_id": str(file_id),
+        "photo_url": photo_url,
+        "image_id": file_id,
     }
+    result = await db.missing_collection.insert_one(payload)
+    body = {"message": "Missing report submitted", "id": result.inserted_id, "data": payload}
+    return Response(dumps(body), media_type="application/json")
 
-    result = await db.missing_collection.insert_one(data)
-    return JSONResponse(
-        content={
-            "message": "Missing report submitted",
-            "id": str(result.inserted_id),
-            "data": {
-                k: str(v) if isinstance(v, ObjectId) else v for k, v in data.items()
-            },
-        }
-    )
+@app.get("/my-reports")
+async def my_reports(request: Request, phone_number: str):
+    docs = await db.missing_collection.find({"phone_number": phone_number}).to_list(None)
+    return Response(dumps({"reports": docs}), media_type="application/json")
 
-
-# Upload Poster for someone
-@app.post("/upload-image")
-async def upload_image(file: UploadFile = File(...)):
-    # Save file to GridFS
-    filename = await save_uploaded_file(file)
-    result = await db.image_uploads_collection.insert_one({"filename": filename})
-
-    # Rewind and read image into a temp file
-    contents = await file.read()
-    temp_path = f"/tmp/{file.filename}"
-    with open(temp_path, "wb") as f:
-        f.write(contents)
-
-    # 🔍 Extract data using Claude + location geocoding
-    extracted_data = helper.extract_with_claude(temp_path)
-
-    return JSONResponse(
-        content={
-            "message": "Image uploaded and processed",
-            "filename": filename,
-            "id": str(result.inserted_id),
-            "extracted_data": extracted_data,
-        }
-    )
-
-
-# Identify loved one
-@app.post("/find")
-async def find(
-    type: int = Form(...),
-    photo: UploadFile = File(...),
-    lat: float = Form(...),
-    lon: float = Form(...),
-    description: str = Form(...),  # Required field
-):
-    file_id = await save_uploaded_file(photo)
-
-    grid_out = await db.fs_bucket.open_download_stream(ObjectId(file_id))
-    image_data = await grid_out.read()
-
+@app.get("/potential-matches")
+async def potential_matches(phone_number: str, limit_per_report: int = 3):
     """
-    data = {
-        "first_name": first_name,
-        "last_name": last_name,
-        "description": description,
-        "photo_filename": photo_filename,
-    }
-
-    result = await db.sightings_collection.insert_one(data)
-    return JSONResponse(
-        content={
-            "message": "Sighting report submitted",
-            "id": str(result.inserted_id),
-            "data": {
-                k: str(v) if isinstance(v, ObjectId) else v for k, v in data.items()
-            },
-        }
-    )
+    For each missing‑report you filed (in `missing_collection`),
+    find the best matches among OTHER USERS' sightings
+    (`sightings_collection`).  Returns top N per report.
     """
-    type_filtered_db = await db.missing_collection.find({"type": type}).to_list(None)
+    # 1️⃣ your missing reports
+    mine = await db.missing_collection.find(
+        {"phone_number": phone_number}
+    ).to_list(None)
+    if not mine:
+        return Response(dumps({"matches": []}), media_type="application/json")
 
-    if not type_filtered_db:
-        return JSONResponse(
-            content={
-                "message": f"No missing {'people' if type == 0 else 'pets'} found in database",
-                "matches": [],
-            }
+    # 2️⃣ sighting pool from other users
+    sightings = await db.sightings_collection.find(
+        {"phone_number": {"$ne": phone_number}}
+    ).to_list(None)
+
+    # 3️⃣ run ML search per report
+    all_matches = []
+    for rep in mine:
+        img_bytes = b""
+        if "image_id" in rep:
+            try:
+                grid_out = await db.fs_bucket.open_download_stream(
+                    ObjectId(rep["image_id"])
+                )
+                img_bytes = await grid_out.read()
+            except Exception:
+                pass
+
+        matches, _ = await search_pets(
+            description=rep["description"],
+            image_data=img_bytes,
+            custom_pets=sightings,                # ← compare to SIGHTINGS
+            location=rep.get("last_seen_location"),
         )
 
-    # Perform matching
-    location = {"lat": lat, "lon": lon}
+        for m in matches[:limit_per_report]:
+            m["source_report_id"] = str(rep["_id"])
+            all_matches.append(m)
 
-    matches, processing_time = await search_pets(
-        description=description,
-        image_data=image_data,
-        custom_pets=type_filtered_db,
-        location=location,
-    )
-
-    formatted_matches = []
-    for match in matches[:3]:
-        formatted_matches.append(
-            {
-                "id": str(match["_id"]),
-                "description": match.get("description"),
-                "text_score": match.get("text_score"),
-                "image_score": match.get("image_score"),
-                "location_score": match.get("location_score"),
-                "combined_score": match.get("combined_score"),
-                "image_url": match.get("image_url"),
-                "contact": match.get("contact"),
-                "location": match.get("location"),
-            }
-        )
-
-    return JSONResponse(
-        content={
-            "message": f"Found {len(formatted_matches)} potential matches",
-            "processing_time_ms": processing_time,
-            "matches": formatted_matches,
-        }
-    )
-
+    return Response(dumps({"matches": all_matches}), media_type="application/json")
 
 @app.get("/files/{file_id}")
 async def get_file(file_id: str):
     try:
         grid_out = await db.fs_bucket.open_download_stream(ObjectId(file_id))
-
-        async def file_iterator():
-            while True:
-                chunk = await grid_out.readchunk()
-                if not chunk:
-                    break
+        async def streamer():
+            while chunk := await grid_out.readchunk():
                 yield chunk
+        return StreamingResponse(streamer(), media_type="application/octet-stream")
+    except:
+        return Response(status_code=404, content={"error": "File not found"})
 
-        return StreamingResponse(file_iterator(), media_type="application/octet-stream")
-    except Exception as e:
-        return JSONResponse(status_code=404, content={"error": "File not found"})
+@app.patch("/my-reports/{report_id}/found")
+async def mark_report_found(
+    report_id: str = Path(..., description="Mongo _id of the missing report")
+):
+    """
+    Mark a missing‑report document as found.
+    Sets {"found": True, "found_date": ISO‑date‑string}
+    """
+    result = await db.missing_collection.update_one(
+        {"_id": ObjectId(report_id)},
+        {
+            "$set": {
+                "found": True,
+                "found_date": datetime.utcnow().isoformat(),
+            }
+        },
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Report not found")
+    return {"ok": True, "id": report_id}
 
+@app.post("/report-sighting")
+async def report_sighting(
+    request: Request,
+    type: int = Form(...),                     # 0 = pet, 1 = person
+    lat: float = Form(...),
+    lon: float = Form(...),
+    description: str = Form(...),
+    phone_number: str = Form(...),
+    photo: UploadFile | None = File(None),     # optional image
+):
+    """
+    Save a new sighting report to the `sighting_reports` collection.
+    """
+    photo_url, image_id = None, None
+    if photo:
+        image_id = await save_uploaded_file(photo)
+        photo_url = f"{get_base_url(request)}/files/{image_id}"
+
+    payload = {
+        "type": type,
+        "last_seen_location": {"lat": lat, "lon": lon},
+        "description": description,
+        "phone_number": phone_number,
+        "photo_url": photo_url,
+        "image_id": image_id,
+        "created": datetime.utcnow().isoformat(),
+        "resolved": False,          # later you can PATCH this field
+    }
+    res = await db.sightings_collection.insert_one(payload)
+    return Response(
+        dumps({"message": "Sighting stored", "id": res.inserted_id, "data": payload}),
+        media_type="application/json",
+    )
+
+@app.get("/my-searches")
+async def my_searches(request: Request, phone_number: str):
+    """
+    Return every document in `sighting_reports` that belongs to this user
+    and attach a public `photo_url` for the app to display.
+    """
+    docs = await db.sightings_collection.find(
+        {"phone_number": phone_number}
+    ).to_list(None)
+
+    # build the public base like  https://xxxx.ngrok-free.app
+    base = str(request.base_url).rstrip("/")
+
+    for d in docs:
+        # If you already stored photo_url when the doc was created, skip
+        if "photo_url" not in d and "image_id" in d:
+            d["photo_url"] = f"{base}/files/{d['image_id']}"
+
+    # bson.json_util.dumps serialises ObjectIds safely
+    return Response(dumps({"searches": docs}), media_type="application/json")
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, proxy_headers=True)

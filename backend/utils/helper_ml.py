@@ -158,7 +158,6 @@ async def search_pets(
 ):
     """Main search function - optimized for speed"""
     global text_model, image_model
-
     if models and "text_model" in models and "image_model" in models:
         local_text_model = models["text_model"]
         local_image_model = models["image_model"]
@@ -282,34 +281,36 @@ async def search_pets(
             location_score = None
             if location and "lat" in location and "lon" in location:
                 if (
-                    "location" in filtered_pets[i]
-                    and "lat" in filtered_pets[i]["location"]
-                    and "lon" in filtered_pets[i]["location"]
+                    "last_seen_location" in filtered_pets[i]
+                    and "lat" in filtered_pets[i]["last_seen_location"]
+                    and "lon" in filtered_pets[i]["last_seen_location"]
                 ):
                     distance = haversine_distance(
                         location["lat"],
                         location["lon"],
-                        filtered_pets[i]["location"]["lat"],
-                        filtered_pets[i]["location"]["lon"],
+                        filtered_pets[i]["last_seen_location"]["lat"],
+                        filtered_pets[i]["last_seen_location"]["lon"],
                     )
                     location_score = max(0, 100 - (distance * 2))
-
             result_item = {
                 "id": filtered_pets[i].get("id", ""),
+                "full_name": filtered_pets[i].get("full_name", ""),
+                "missing_since": filtered_pets[i].get("missing_since", ""),
                 "type": filtered_pets[i].get("type", 0),
                 "description": filtered_pets[i].get("description", ""),
                 "text_score": text_similarity,
                 "image_score": image_similarity,
                 "location_score": location_score,
                 "image_url": filtered_pets[i].get(
-                    "photo_filename", ""
+                    "photo_url", ""
                 ),  # You fixed this 👍
                 "contact": filtered_pets[i].get("phone_number", ""),
+                "created": filtered_pets[i].get("created"),
             }
             result_item["_id"] = str(filtered_pets[i].get("_id", ""))
 
-            if "location" in filtered_pets[i]:
-                result_item["location"] = filtered_pets[i]["location"]
+            if "last_seen_location" in filtered_pets[i]:
+                result_item["last_seen_location"] = filtered_pets[i]["last_seen_location"]
 
             factors = 1
             combined_score = text_similarity
@@ -332,6 +333,7 @@ async def search_pets(
     end_time = time.time()
     processing_time = (end_time - start_time) * 1000  # Convert to milliseconds
 
+    print(results)
     return results, processing_time
 
 

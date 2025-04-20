@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, FlatListComponent } from 'react-native';
 import { MapPin, Calendar, Award, Phone } from 'lucide-react-native';
 import { COLORS, FONTS, SIZES, SHADOWS } from '@/constants/theme';
 import Card from '@/components/UI/Card';
@@ -14,6 +14,7 @@ export interface MatchItem {
   location: string;
   matchPercentage: number;
   contactPhone?: string;
+  found ?: boolean;
 }
 
 interface MatchCardProps {
@@ -21,6 +22,8 @@ interface MatchCardProps {
   onContact?: (match: MatchItem) => void;
   expanded?: boolean;
   showPercentage?: boolean;
+  hideName?: boolean;
+  highlightImportant?: boolean;
 }
 
 const MatchCard = ({
@@ -28,6 +31,8 @@ const MatchCard = ({
   onContact,
   expanded = false,
   showPercentage = false,
+  hideName = false,
+  highlightImportant = false,
 }: MatchCardProps) => {
   const formattedDate = match.lastSeen
     ? new Date(match.lastSeen).toLocaleDateString()
@@ -81,12 +86,22 @@ const MatchCard = ({
 
           <View style={styles.infoRow}>
             <Calendar size={SIZES.medium} color={COLORS.gray} />
-            <Text style={styles.infoText}>{formattedDate}</Text>
+            <Text
+              style={
+                highlightImportant ? styles.infoTextBig : styles.infoText
+              }
+              numberOfLines={1}
+            >{formattedDate}</Text>
           </View>
 
           <View style={styles.infoRow}>
             <MapPin size={SIZES.medium} color={COLORS.gray} />
-            <Text style={styles.infoText} numberOfLines={1}>
+            <Text
+                style={
+                  highlightImportant ? styles.infoTextBig : styles.infoText
+                }
+                numberOfLines={1}
+              >
               {match.location}
             </Text>
           </View>
@@ -179,6 +194,13 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.regular,
     fontSize: SIZES.medium,
     color: COLORS.gray,
+    marginLeft: SIZES.spacingSmall,
+    flex: 1,
+  },
+  infoTextBig: {
+    fontFamily: FONTS.semiBold,
+    fontSize: SIZES.large,
+    color: COLORS.black,
     marginLeft: SIZES.spacingSmall,
     flex: 1,
   },

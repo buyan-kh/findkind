@@ -39,21 +39,21 @@ export default function TabLayout() {
       <Tabs.Screen
         name="search"
         options={{
-          title: 'Lookout',
+          title: 'Sighting',
           tabBarIcon: ({ color, size }) => <Search color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="matches"
         options={{
-          title: 'Matches',
+          title: 'Updates',
           tabBarIcon: ({ color, size }) => <Bell color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Searches',
+          title: 'My Sightings',
           tabBarIcon: ({ color, size }) => <User color={color} size={size} />,
         }}
       />

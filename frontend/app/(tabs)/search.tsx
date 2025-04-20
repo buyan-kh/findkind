@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { Camera, Search as SearchIcon } from 'lucide-react-native';
+import { Camera, Send } from 'lucide-react-native';
 import Header from '@/components/common/Header';
 import PhotoUpload from '@/components/report/PhotoUpload';
 import LocationPicker from '@/components/report/LocationPicker';
@@ -16,10 +16,14 @@ import Input from '@/components/UI/Input';
 import Button from '@/components/UI/Button';
 import MatchCard, { MatchItem } from '@/components/search/MatchCard';
 import { COLORS, FONTS, SIZES, SHADOWS } from '@/constants/theme';
+import axios from 'axios';
+ 
+const API_BASE = 'https://cd30-128-120-27-122.ngrok-free.app';
 
 export default function SearchScreen() {
   const [reportType, setReportType] = useState<ReportType>('pet');
   const [photoUploaded, setPhotoUploaded] = useState(false);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [location, setLocation] = useState<{
     latitude: number;
     longitude: number;
@@ -29,9 +33,7 @@ export default function SearchScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [matchResults, setMatchResults] = useState<MatchItem[]>([]);
 
-  const handlePhotoSelected = (uri: string) => {
-    setPhotoUploaded(!!uri);
-  };
+  const handlePhotoSelected = (uri: string) => setPhotoUri(uri);
 
   const handleLocationSelected = (location: {
     latitude: number;
@@ -40,70 +42,56 @@ export default function SearchScreen() {
     setLocation(location);
   };
 
-  const handleSearch = () => {
-    // Validate required fields
+  const handleSubmit = async () => {
     if (!location) {
-      Alert.alert(
-        'Location Required',
-        'Please select a location where you saw this individual'
+      return Alert.alert(
+        'Validation',
+        'Please drop a pin for the sighting location first.'
       );
-      return;
     }
-
+    if (!description.trim()) {
+      return Alert.alert('Validation', 'Enter a short description of what you saw.');
+    }
     if (!contactPhone.trim()) {
-      Alert.alert(
-        'Contact Information Required',
-        'Please provide your phone number so owners can contact you'
-      );
-      return;
+      return Alert.alert('Validation', 'Please provide your phone number.');
     }
-
     setIsSearching(true);
 
-    // Simulate API search with delayed response
-    setTimeout(() => {
-      const mockResults: MatchItem[] = [
-        {
-          id: '1',
-          name: 'Max (Golden Retriever)',
-          description:
-            'Friendly golden retriever, 3 years old, wearing a blue collar with tags.',
-          image:
-            'https://images.pexels.com/photos/2253275/pexels-photo-2253275.jpeg?auto=compress&cs=tinysrgb&w=600',
-          lastSeen: '2023-06-15',
-          location: 'Central Park, New York',
-          matchPercentage: 89,
-          contactPhone: '555-123-4567',
-        },
-        {
-          id: '2',
-          name: 'Buddy (Labrador Mix)',
-          description:
-            'Black and white Labrador mix, medium size, has a small scar on his right ear.',
-          image:
-            'https://images.pexels.com/photos/1490908/pexels-photo-1490908.jpeg?auto=compress&cs=tinysrgb&w=600',
-          lastSeen: '2023-06-12',
-          location: 'Downtown, Seattle',
-          matchPercentage: 72,
-          contactPhone: '555-987-6543',
-        },
-        {
-          id: '3',
-          name: 'Charlie (Golden Mix)',
-          description:
-            'Golden mix with light brown fur, very shy around strangers but friendly once comfortable.',
-          image:
-            'https://images.pexels.com/photos/3361739/pexels-photo-3361739.jpeg?auto=compress&cs=tinysrgb&w=600',
-          lastSeen: '2023-06-10',
-          location: 'Riverside Park, Chicago',
-          matchPercentage: 63,
-          contactPhone: '555-345-6789',
-        },
-      ];
+    try {
+      // build multipart form‑data
+      const data = new FormData();
+      data.append('type', reportType === 'person' ? '1' : '0');
+      data.append('lat', String(location.latitude));
+      data.append('lon', String(location.longitude));
+      data.append('description', description);
+      data.append('phone_number', contactPhone.trim());
+      if (photoUri) {
+        const name = photoUri.split('/').pop() ?? 'photo.jpg';
+        const ext  = name.split('.').pop() || 'jpg';
+        data.append('photo', { uri: photoUri, name, type: `image/${ext}` } as any);
+      }
 
-      setMatchResults(mockResults);
+      await axios.post(`${API_BASE}/report-sighting`, data, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 10000,
+      });
+
+      Alert.alert(
+        'Thank you!',
+        'Your sighting has been submitted. We’ll notify you if it matches a missing report.'
+      );
+
+      // reset form
+      setPhotoUri(null);
+      setLocation(null);
+      setDescription('');
+      setContactPhone('');
+      setMatchResults([]);
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.detail || err.message || 'Try again.');
+    } finally {
       setIsSearching(false);
-    }, 2000);
+    }
   };
 
   const handleContact = (match: MatchItem) => {
@@ -170,13 +158,13 @@ export default function SearchScreen() {
         />
 
         <Button
-          title={isSearching ? 'Searching...' : 'Lookout'}
-          onPress={handleSearch}
+          title={isSearching ? 'Submitting…' : 'Submit Sighting'}
+          onPress={handleSubmit}
           disabled={isSearching}
           loading={isSearching}
           icon={
             !isSearching ? (
-              <SearchIcon color={COLORS.white} size={SIZES.medium} />
+              <Send color={COLORS.white} size={SIZES.medium} />
             ) : undefined
           }
           style={styles.searchButton}

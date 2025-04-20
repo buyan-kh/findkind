@@ -14,13 +14,14 @@
     "@lucide/lab": "^0.1.2",
     "@react-navigation/bottom-tabs": "^7.2.0",
     "@react-navigation/native": "^7.0.14",
+    "axios": "^1.8.4",
     "expo": "52.0.33",
     "expo-blur": "~14.0.3",
     "expo-camera": "^16.0.18",
     "expo-constants": "^17.0.5",
     "expo-font": "^13.0.3",
     "expo-haptics": "^14.0.1",
-    "expo-image-picker": "~14.5.0",
+    "expo-image-picker": "~16.0.6",
     "expo-linear-gradient": "^14.0.2",
     "expo-linking": "^7.0.5",
     "expo-location": "~16.5.4",
@@ -42,7 +43,9 @@
     "react-native-svg": "^15.11.1",
     "react-native-url-polyfill": "^2.0.0",
     "react-native-web": "^0.19.13",
-    "react-native-webview": "13.12.5"
+    "react-native-webview": "13.12.5",
+    "@expo/ngrok": "^4.1.0",
+    "@react-native-community/datetimepicker": "8.2.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+// MySightingsScreen.tsx  (replace your old MySearchesScreen)
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,205 +7,124 @@ import {
   FlatList,
   TouchableOpacity,
   Alert,
+  Platform,
+  Linking,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { Search, MapPin, EyeOff } from 'lucide-react-native';
 import Header from '@/components/common/Header';
 import MatchCard, { MatchItem } from '@/components/search/MatchCard';
+import Input from '@/components/UI/Input';
+import Button from '@/components/UI/Button';
 import { COLORS, FONTS, SIZES } from '@/constants/theme';
+import axios from 'axios';
 
-export default function MySearchesScreen() {
-  const router = useRouter();
-  const [activeTab, setActiveTab] = useState<
-    'mySearches' | 'potentialMissingMatches'
-  >('mySearches');
-  const [mySearches, setMySearches] = useState<MatchItem[]>([]);
-  const [potentialMissingMatches, setPotentialMissingMatches] = useState<
-    MatchItem[]
-  >([]);
-  const [loading, setLoading] = useState(true);
+const API_BASE = 'https://cd30-128-120-27-122.ngrok-free.app';
 
-  useEffect(() => {
-    // Simulate API call to fetch data
-    setTimeout(() => {
-      const mockSearches: MatchItem[] = [
-        {
-          id: '1',
-          name: 'Spotted Golden Retriever',
-          description:
-            'Golden retriever seen near Central Park, friendly and had a blue collar.',
-          image:
-            'https://images.pexels.com/photos/2253275/pexels-photo-2253275.jpeg?auto=compress&cs=tinysrgb&w=600',
-          lastSeen: '2023-07-15',
-          location: 'Central Park, New York',
-          matchPercentage: 0,
-          contactPhone: '555-123-4567',
-        },
-        {
-          id: '2',
-          name: 'Siamese Cat',
-          description:
-            'Siamese cat found near residential area, appears to be lost.',
-          image:
-            'https://images.pexels.com/photos/991831/pexels-photo-991831.jpeg?auto=compress&cs=tinysrgb&w=600',
-          lastSeen: '2023-07-12',
-          location: 'Park Avenue, Portland',
-          matchPercentage: 0,
-          contactPhone: '555-987-6543',
-        },
-      ];
+export default function MySightingsScreen() {
+  // phone + fetch state
+  const [phone, setPhone] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-      const mockPotentialMissingMatches: MatchItem[] = [
-        {
-          id: '3',
-          name: 'Max (Golden Retriever)',
-          description:
-            'Lost friendly golden retriever, 3 years old, wearing a blue collar with tags.',
-          image:
-            'https://images.pexels.com/photos/2253275/pexels-photo-2253275.jpeg?auto=compress&cs=tinysrgb&w=600',
-          lastSeen: '2023-06-15',
-          location: 'Central Park, New York',
-          matchPercentage: 89,
-          contactPhone: '555-222-3333',
-        },
-        {
-          id: '4',
-          name: 'Bella (Siamese Cat)',
-          description:
-            'Lost Siamese cat with blue eyes, cream colored body with dark brown points. Very friendly.',
-          image:
-            'https://images.pexels.com/photos/1170986/pexels-photo-1170986.jpeg?auto=compress&cs=tinysrgb&w=600',
-          lastSeen: '2023-07-10',
-          location: 'Main Street, Portland',
-          matchPercentage: 76,
-          contactPhone: '555-444-5555',
-        },
-      ];
+  // list of sightings
+  const [sightings, setSightings] = useState<(MatchItem & { resolved?: boolean })[]>([]);
 
-      setMySearches(mockSearches);
-      setPotentialMissingMatches(mockPotentialMissingMatches);
+  // ── map document → MatchItem
+  const mapSearch = (r: any): MatchItem & { resolved?: boolean } => ({
+    id:
+      typeof r._id === 'object' && r._id !== null && '$oid' in r._id
+        ? r._id.$oid
+        : String(r._id),
+    name: r.name || r.full_name || 'Sighting',
+    description: r.description,
+    image: r.photo_url || r.image_url,
+    lastSeen: r.created,           // ←  ‘created’ field in sighting_reports
+    location: r.location           // already formatted on server; if not:
+      ? `${r.location.lat.toFixed(4)}, ${r.location.lon.toFixed(4)}`: '',
+    matchPercentage: 0,
+    contactPhone: r.phone_number,
+    resolved: r.resolved || false,
+  });
+
+  // ── fetch sightings
+  const handleSearch = async () => {
+    if (!phone.trim()) return Alert.alert('Validation', 'Enter your phone number.');
+    setSearching(true);
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/my-searches`, {
+        params: { phone_number: phone.trim() },
+      });
+      setSightings(res.data.searches.map(mapSearch));
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.detail || err.message || 'Try again.');
+    } finally {
       setLoading(false);
-    }, 1000);
-  }, []);
+      setSearching(false);
+    }
+  };
 
-  const handleCardPress = (item: MatchItem) => {
-    // In a production app, this would navigate to a detail screen
+  // ── dial phone (from potential matches list)
+  const handleContact = (item: MatchItem) => {
+    const url = `tel:${item.contactPhone}`;
+    Linking.canOpenURL(url).then(s => (s ? Linking.openURL(url) : Alert.alert('Unable to open dialer')));
+  };
+
+  // ── simple detail popup
+  const handleCardPress = (item: MatchItem) =>
     Alert.alert(item.name, item.description, [{ text: 'OK' }]);
-  };
 
-  const handleContact = (match: MatchItem) => {
-    Alert.alert('Contact', `Would you like to contact about ${match.name}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Call',
-        onPress: () => {
-          // In a real app, this would use Linking.openURL(`tel:${match.contactPhone}`)
-          Alert.alert('Calling', `Calling ${match.contactPhone}`);
-        },
-      },
-    ]);
-  };
+  // ── key extractor (guaranteed unique)
+  const keyExtractor = (item: MatchItem, index: number) => `${item.id}-${index}`;
 
-  const handleSearchPress = () => {
-    router.push('/search');
-  };
-
-  const renderEmptyList = () => (
-    <View style={styles.emptyContainer}>
-      {activeTab === 'mySearches' ? (
-        <>
-          <Search color={COLORS.gray} size={SIZES.xxlarge} />
-          <Text style={styles.emptyTitle}>No Searches Yet</Text>
-          <Text style={styles.emptyText}>
-            You haven't searched for any pets or people yet.
-          </Text>
-          <TouchableOpacity
-            style={styles.searchButton}
-            onPress={handleSearchPress}
-          >
-            <Text style={styles.searchButtonText}>Report Sighting</Text>
-          </TouchableOpacity>
-        </>
-      ) : (
-        <>
-          <EyeOff color={COLORS.gray} size={SIZES.xxlarge} />
-          <Text style={styles.emptyTitle}>No Missing Matches</Text>
-          <Text style={styles.emptyText}>
-            Your sightings haven't matched any missing reports yet.
-          </Text>
-        </>
-      )}
-    </View>
-  );
-
-  const renderItem = ({ item }: { item: MatchItem }) => (
-    <TouchableOpacity onPress={() => handleCardPress(item)}>
-      <MatchCard
-        match={item}
-        expanded={activeTab === 'potentialMissingMatches'}
-        onContact={handleContact}
-        showPercentage={activeTab === 'potentialMissingMatches'}
-      />
-    </TouchableOpacity>
-  );
+  // ── progress numbers
+  const resolvedCount = sightings.filter(s => s.resolved).length;
+  const total = sightings.length;
 
   return (
     <View style={styles.container}>
-      <Header title="My Searches" useGradient={false} />
+      <Header title="Your Sightings" useGradient={false} />
 
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'mySearches' && styles.activeTab]}
-          onPress={() => setActiveTab('mySearches')}
-        >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'mySearches' && styles.activeTabText,
-            ]}
-          >
-            My Searches
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.tab,
-            activeTab === 'potentialMissingMatches' && styles.activeTab,
-          ]}
-          onPress={() => setActiveTab('potentialMissingMatches')}
-        >
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'potentialMissingMatches' && styles.activeTabText,
-            ]}
-          >
-            Potential Missing
-            {potentialMissingMatches.length > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>
-                  {potentialMissingMatches.length}
-                </Text>
-              </View>
-            )}
-          </Text>
-        </TouchableOpacity>
+      {/* PHONE ENTRY */}
+      <View style={styles.searchBox}>
+        <Input
+          label="Phone Number"
+          placeholder="e.g. 4083938414"
+          value={phone}
+          onChangeText={setPhone}
+          keyboardType="phone-pad"
+          editable={!searching}
+        />
+        <Button
+          title={searching ? 'Fetching…' : 'Fetch Sightings'}
+          onPress={handleSearch}
+          disabled={searching}
+          style={styles.fetchBtn}
+        />
       </View>
 
+      {/* LIST */}
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading...</Text>
+        <View style={styles.loadingBox}>
+          <Text style={styles.loadingText}>Loading…</Text>
         </View>
       ) : (
         <FlatList
-          data={
-            activeTab === 'mySearches' ? mySearches : potentialMissingMatches
-          }
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
+          data={sightings}
+          keyExtractor={keyExtractor}
           contentContainerStyle={styles.listContent}
-          ListEmptyComponent={renderEmptyList}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>No sightings yet. Enter your phone number above.</Text>
+          }
+          renderItem={({ item }) => (
+            <TouchableOpacity onPress={() => handleCardPress(item)}>
+              <MatchCard match={item} expanded={false} onContact={handleContact} hideName={true} highlightImportant={true}/>
+              {item.resolved && (
+                <View style={styles.tickBox}>
+                  <Text style={styles.tick}>✔</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
         />
       )}
     </View>
@@ -212,90 +132,46 @@ export default function MySearchesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { flex: 1, backgroundColor: COLORS.white },
+  searchBox: {
+    paddingHorizontal: SIZES.spacingLarge,
+    paddingTop: SIZES.spacing,
     backgroundColor: COLORS.white,
   },
-  tabContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: SIZES.spacingLarge,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightGray,
+  fetchBtn: {
+    marginTop: SIZES.spacingSmall,
+    ...Platform.select({ ios: { alignSelf: 'flex-end' } }),
   },
-  tab: {
-    flex: 1,
-    paddingVertical: SIZES.spacingLarge,
-    alignItems: 'center',
-  },
-  activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: COLORS.primary,
-  },
-  tabText: {
-    fontFamily: FONTS.medium,
+  progress: {
+    fontFamily: FONTS.semiBold,
     fontSize: SIZES.medium,
-    color: COLORS.gray,
-  },
-  activeTabText: {
     color: COLORS.primary,
+    paddingHorizontal: SIZES.spacingLarge,
+    paddingVertical: SIZES.spacingSmall,
   },
   listContent: {
     padding: SIZES.spacing,
     paddingBottom: SIZES.spacingXXLarge,
   },
-  emptyContainer: {
-    padding: SIZES.spacingXLarge,
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 300,
-  },
-  emptyTitle: {
-    fontFamily: FONTS.semiBold,
-    fontSize: SIZES.large,
-    color: COLORS.darkGray,
-    marginTop: SIZES.spacingLarge,
-    marginBottom: SIZES.spacingSmall,
-  },
+  loadingBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { fontFamily: FONTS.medium, fontSize: SIZES.large, color: COLORS.gray },
   emptyText: {
-    fontFamily: FONTS.regular,
-    fontSize: SIZES.medium,
-    color: COLORS.gray,
-    textAlign: 'center',
-    marginBottom: SIZES.spacingLarge,
-  },
-  searchButton: {
-    backgroundColor: COLORS.primary,
-    paddingVertical: SIZES.spacing,
-    paddingHorizontal: SIZES.spacingLarge,
-    borderRadius: SIZES.borderRadius,
-  },
-  searchButtonText: {
-    fontFamily: FONTS.semiBold,
-    fontSize: SIZES.medium,
-    color: COLORS.white,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
     fontFamily: FONTS.medium,
-    fontSize: SIZES.large,
+    fontSize: SIZES.medium,
     color: COLORS.gray,
+    marginTop: SIZES.spacingXLarge,
+    textAlign: 'center',
   },
-  badge: {
-    backgroundColor: COLORS.accent,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+  tickBox: {
+    position: 'absolute',
+    top: SIZES.spacingSmall,
+    right: SIZES.spacingSmall,
+    backgroundColor: COLORS.success,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: SIZES.spacingSmall,
   },
-  badgeText: {
-    fontFamily: FONTS.bold,
-    fontSize: SIZES.xsmall,
-    color: COLORS.white,
-  },
+  tick: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 16, lineHeight: 16 },
 });
