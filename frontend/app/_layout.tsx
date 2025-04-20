@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View, StyleSheet } from 'react-native';
+import { AuthProvider } from '@/context/AuthContext';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import {
   useFonts,
@@ -12,7 +13,6 @@ import {
 } from '@expo-google-fonts/inter';
 import { SplashScreen } from 'expo-router';
 
-// Prevent splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -25,37 +25,34 @@ export default function RootLayout() {
     'Inter-Bold': Inter_700Bold,
   });
 
-  // Hide splash screen once fonts are loaded
   useEffect(() => {
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync();
     }
   }, [fontsLoaded, fontError]);
 
-  // Return null to keep splash screen visible while fonts load
   if (!fontsLoaded && !fontError) {
     return null;
   }
 
   return (
-    <View style={styles.container}>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: 'transparent' },
-          animation: 'fade',
-        }}
-      >
-        <Stack.Screen
-          name="(tabs)"
-          options={{
+    <AuthProvider>
+      <View style={styles.container}>
+        <Stack
+          screenOptions={{
             headerShown: false,
+            contentStyle: { backgroundColor: 'transparent' },
+            animation: 'fade',
           }}
-        />
-        <Stack.Screen name="+not-found" options={{ title: 'Oops!' }} />
-      </Stack>
-      <StatusBar style="dark" />
-    </View>
+        >
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="+not-found" options={{ title: 'Oops!' }} />
+          {/* Optionally add a login screen route */}
+          <Stack.Screen name="login" />
+        </Stack>
+        <StatusBar style="dark" />
+      </View>
+    </AuthProvider>
   );
 }
 

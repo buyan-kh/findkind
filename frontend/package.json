@@ -9,7 +9,9 @@
     "lint": "expo lint"
   },
   "dependencies": {
+    "@auth0/nextjs-auth0": "^4.4.2",
     "@expo-google-fonts/inter": "^0.2.3",
+    "@expo/ngrok": "^4.1.0",
     "@expo/vector-icons": "^14.0.2",
     "@lucide/lab": "^0.1.2",
     "@react-navigation/bottom-tabs": "^7.2.0",
